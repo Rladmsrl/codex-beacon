@@ -1,0 +1,30 @@
+[package]
+name = "codex-ble-bridge"
+version = "0.1.0"
+edition = "2024"
+description = "Send live Codex task activity from macOS to a StickS3 over Bluetooth LE"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+btleplug = "0.12"
+clap = { version = "4.5", features = ["derive"] }
+dirs = "6.0"
+fs2 = "0.4"
+futures = "0.3"
+plist = "1.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.47", features = ["full"] }
+uuid = { version = "1.18", features = ["serde"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = "0.24"
+winit = "0.30"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[dev-dependencies]
+tempfile = "3.20"

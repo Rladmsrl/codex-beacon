@@ -1,0 +1,11 @@
+.DS_Store
+**/.DS_Store
+**/target/
+**/.pio/
+**/dist/
+*.log
+*.sock
+*.tmp
+.idea/
+.vscode/
+macos/Codex Beacon.app/

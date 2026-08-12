@@ -1,0 +1,86 @@
+name: Build and release
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS Universal app
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust targets
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Test
+        run: cargo test --locked
+      - name: Package Universal 2 app
+        run: ./scripts/package_macos.sh
+      - name: Verify app signature and archive
+        run: |
+          codesign --verify --deep --strict "dist/Codex Beacon.app"
+          unzip -tq dist/Codex-Beacon-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-beacon-macos
+          path: macos/dist/Codex-Beacon-macOS.zip
+          if-no-files-found: error
+
+  firmware:
+    name: StickS3 firmware
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: python -m pip install platformio
+      - name: Build factory image
+        run: ./scripts/package_firmware.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-beacon-firmware
+          path: firmware/dist/Codex-Beacon-StickS3.factory.bin
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, firmware]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v5
+        with:
+          name: codex-beacon-macos
+          path: release-assets
+      - uses: actions/download-artifact@v5
+        with:
+          name: codex-beacon-firmware
+          path: release-assets
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            release-assets/Codex-Beacon-macOS.zip \
+            release-assets/Codex-Beacon-StickS3.factory.bin \
+            --verify-tag \
+            --generate-notes \
+            --title "Codex Beacon ${GITHUB_REF_NAME}"
