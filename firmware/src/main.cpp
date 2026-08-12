@@ -23,6 +23,7 @@ constexpr char kControlUuid[] = "7a5c1002-4e6f-4f70-656e-4149436f6465";
 constexpr uint32_t kPairingMs = 90 * 1000;
 constexpr uint32_t kOfflineMs = 12 * 1000;
 constexpr uint32_t kDimMs = 60 * 1000;
+constexpr uint32_t kBatteryPollMs = 5 * 1000;
 constexpr uint8_t kMaxTasks = 4;
 constexpr uint8_t kProtocolVersion = 1;
 
@@ -44,6 +45,9 @@ uint32_t g_pairingUntil = 0;
 volatile uint32_t g_passkey = 0;
 uint32_t g_bothHeldSince = 0;
 uint32_t g_lastInput = 0;
+uint32_t g_lastBatteryPoll = 0;
+int32_t g_batteryLevel = -1;
+bool g_charging = false;
 volatile int g_connections = 0;
 volatile bool g_dirty = true;
 bool g_resetHandled = false;
@@ -107,27 +111,62 @@ void formatElapsed(uint16_t seconds, char* output, size_t length) {
   }
 }
 
+void updateBattery(bool force = false) {
+  int32_t level = M5.Power.getBatteryLevel();
+  if (level >= 0) {
+    level = std::min<int32_t>(100, std::max<int32_t>(0, level));
+  }
+  const bool charging =
+      M5.Power.isCharging() == m5::Power_Class::is_charging_t::is_charging;
+  if (force || level != g_batteryLevel || charging != g_charging) {
+    g_batteryLevel = level;
+    g_charging = charging;
+    g_dirty = true;
+    Serial.printf("[POWER] battery=%ld%%, charging=%s\n",
+                  static_cast<long>(g_batteryLevel), g_charging ? "yes" : "no");
+  }
+}
+
 void drawHeader() {
   auto& d = g_canvas;
-  d.fillRect(0, 0, d.width(), 27, 0x1082);
+  constexpr uint16_t bg = 0x1082;
+  d.fillRect(0, 0, d.width(), 34, bg);
   d.setFont(&fonts::Font0);
   d.setTextDatum(middle_left);
-  d.setTextColor(TFT_WHITE, 0x1082);
-  d.drawString("CODEX", 7, 13);
+  d.setTextColor(TFT_WHITE, bg);
+  d.drawString("CODEX", 7, 9);
+
+  char battery[24];
+  if (g_batteryLevel < 0) {
+    snprintf(battery, sizeof(battery), "电量 --");
+  } else if (g_charging) {
+    snprintf(battery, sizeof(battery), "充电中 %ld%%", static_cast<long>(g_batteryLevel));
+  } else {
+    snprintf(battery, sizeof(battery), "电量 %ld%%", static_cast<long>(g_batteryLevel));
+  }
+  d.setFont(&fonts::efontCN_10);
+  d.setTextDatum(middle_right);
+  const uint16_t batteryColor = g_charging     ? TFT_CYAN
+                                : g_batteryLevel < 15 ? TFT_RED
+                                : g_batteryLevel < 30 ? TFT_ORANGE
+                                                      : TFT_LIGHTGREY;
+  d.setTextColor(batteryColor, bg);
+  d.drawString(battery, d.width() - 6, 9);
 
   char status[24];
   if (pairingOpen()) {
     snprintf(status, sizeof(status), "PAIR %lus", (g_pairingUntil - millis()) / 1000);
-    d.setTextColor(TFT_YELLOW, 0x1082);
+    d.setTextColor(TFT_YELLOW, bg);
   } else if (g_connections > 0) {
     snprintf(status, sizeof(status), "BLE %d", g_connections);
-    d.setTextColor(TFT_GREEN, 0x1082);
+    d.setTextColor(TFT_GREEN, bg);
   } else {
     snprintf(status, sizeof(status), "OFFLINE");
-    d.setTextColor(TFT_LIGHTGREY, 0x1082);
+    d.setTextColor(TFT_LIGHTGREY, bg);
   }
-  d.setTextDatum(middle_right);
-  d.drawString(status, d.width() - 6, 13);
+  d.setFont(&fonts::Font0);
+  d.setTextDatum(middle_center);
+  d.drawString(status, d.width() / 2, 25);
 }
 
 void drawPairing() {
@@ -201,8 +240,8 @@ void drawCards() {
   auto& d = g_canvas;
   d.fillScreen(TFT_BLACK);
   drawHeader();
-  constexpr int top = 31;
-  constexpr int cardH = 45;
+  constexpr int top = 38;
+  constexpr int cardH = 43;
   for (uint8_t i = 0; i < count; ++i) {
     const TaskCard& task = tasks[i];
     const int y = top + i * cardH;
@@ -323,6 +362,7 @@ bool parseSnapshot(const std::string& data) {
   g_lastPacket = millis();
   if (changed) {
     g_dirty = true;
+    Serial.printf("[SNAPSHOT] tasks=%u, total=%u, sequence=%u\n", count, bytes[5], bytes[3]);
   }
   return true;
 }
@@ -478,6 +518,8 @@ void setup() {
   M5.BtnB.setHoldThresh(1500);
   g_lastInput = millis();
   Serial.println("\n=== StickS3 Codex Beacon ===");
+  updateBattery(true);
+  g_lastBatteryPoll = millis();
   initBle();
   redraw();
 }
@@ -499,6 +541,10 @@ void loop() {
     if (pairingOpen()) {
       g_dirty = true;
     }
+  }
+  if (now - g_lastBatteryPoll >= kBatteryPollMs) {
+    g_lastBatteryPoll = now;
+    updateBattery();
   }
   if (!pairingOpen() && g_connections == 0 && now - g_lastInput > kDimMs &&
       (g_lastPacket == 0 || now - g_lastPacket > kOfflineMs)) {

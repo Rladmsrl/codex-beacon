@@ -15,14 +15,14 @@ struct Cli {
 enum Commands {
     /// 在前台运行桥接服务
     Run,
-    /// 扫描并保存所有处于配对模式的显示器
+    /// 扫描并保存所有处于配对模式的设备
     Pair {
         #[arg(long, default_value_t = 12)]
         seconds: u64,
     },
-    /// 列出已保存的显示器
+    /// 列出已保存的设备
     Devices,
-    /// 从桥接服务中忘记一个或全部显示器
+    /// 从桥接服务中忘记一个或全部设备
     Forget {
         id: Option<String>,
         #[arg(long)]

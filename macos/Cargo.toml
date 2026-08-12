@@ -1,6 +1,6 @@
 [package]
 name = "codex-ble-bridge"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Send live Codex task activity from macOS to a StickS3 over Bluetooth LE"
 license = "MIT"

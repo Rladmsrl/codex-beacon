@@ -65,6 +65,7 @@ mod tests {
                 attention: false,
                 updated_at: 1,
                 started_at: 1,
+                metadata_only: false,
             })
             .collect();
         let packet = encode_snapshot(1, &tasks);

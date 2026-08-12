@@ -69,9 +69,9 @@ impl MenuBarApp {
         let menu = Menu::new();
         let service_status = MenuItem::with_id("service_status", "● 服务状态检查中", false, None);
         let device_status = MenuItem::with_id("device_status", "已配对设备：0", false, None);
-        let pair = MenuItem::with_id(ID_PAIR, "配对新显示器…", true, None);
+        let pair = MenuItem::with_id(ID_PAIR, "配对新设备", true, None);
         let devices = MenuItem::with_id(ID_DEVICES, "查看已配对设备", true, None);
-        let forget_all = MenuItem::with_id(ID_FORGET_ALL, "忘记全部显示器…", true, None);
+        let forget_all = MenuItem::with_id(ID_FORGET_ALL, "忘记全部设备", true, None);
         let start = MenuItem::with_id(ID_START, "启动服务", true, None);
         let restart = MenuItem::with_id(ID_RESTART, "重启服务", true, None);
         let stop = MenuItem::with_id(ID_STOP, "停止服务", true, None);
@@ -220,7 +220,7 @@ impl MenuBarApp {
                 .stderr(Stdio::piped())
                 .output();
             match result {
-                Ok(output) if output.status.success() => installer::notify("显示器配对完成"),
+                Ok(output) if output.status.success() => installer::notify("设备配对完成"),
                 Ok(output) => installer::notify(&format!(
                     "配对失败：{}",
                     String::from_utf8_lossy(&output.stderr).trim()
@@ -232,7 +232,7 @@ impl MenuBarApp {
 
     fn show_devices(&self) {
         let message = match config::load(&self.paths) {
-            Ok(settings) if settings.devices.is_empty() => "尚未配对显示器".to_owned(),
+            Ok(settings) if settings.devices.is_empty() => "尚未配对设备".to_owned(),
             Ok(settings) => settings
                 .devices
                 .iter()
@@ -246,7 +246,7 @@ impl MenuBarApp {
 
     fn forget_all(&self) {
         if !confirm(
-            "忘记全部显示器？",
+            "忘记全部设备？",
             "只删除 Mac 端设备记录，不删除 StickS3 或 macOS 系统保存的 BLE bond。",
         ) {
             return;
@@ -259,7 +259,7 @@ impl MenuBarApp {
                 .stderr(Stdio::null())
                 .status();
             match status {
-                Ok(status) if status.success() => installer::notify("已忘记全部显示器"),
+                Ok(status) if status.success() => installer::notify("已忘记全部设备"),
                 _ => installer::notify("删除设备记录失败"),
             }
         });

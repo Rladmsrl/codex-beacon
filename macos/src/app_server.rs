@@ -129,7 +129,11 @@ pub fn parse_thread_list(response: &Value) -> Vec<TaskMetadata> {
                 cwd: item.get("cwd").and_then(Value::as_str).map(str::to_owned),
                 status: item
                     .get("status")
-                    .and_then(Value::as_str)
+                    .and_then(|status| {
+                        status
+                            .as_str()
+                            .or_else(|| status.get("type").and_then(Value::as_str))
+                    })
                     .unwrap_or("notLoaded")
                     .to_owned(),
                 updated_at: item.get("updatedAt").and_then(Value::as_u64),
@@ -146,10 +150,11 @@ mod tests {
     fn parses_real_thread_list_shape() {
         let response = json!({"result":{"data":[{
             "id":"abc", "name":"Build bridge", "cwd":"/tmp/demo",
-            "status":"notLoaded", "updatedAt":42
+            "status":{"type":"notLoaded"}, "updatedAt":42
         }]}});
         let tasks = parse_thread_list(&response);
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].title, "Build bridge");
+        assert_eq!(tasks[0].status, "notLoaded");
     }
 }

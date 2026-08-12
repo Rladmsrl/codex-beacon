@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+const METADATA_ACTIVE_GRACE_SECS: u64 = 90;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum TaskState {
@@ -23,6 +25,7 @@ pub struct TaskView {
     pub attention: bool,
     pub updated_at: u64,
     pub started_at: u64,
+    pub metadata_only: bool,
 }
 
 impl TaskView {
@@ -79,7 +82,9 @@ impl TaskStore {
             attention,
             updated_at: now,
             started_at: now,
+            metadata_only: false,
         });
+        task.metadata_only = false;
         task.state = state;
         task.attention = attention;
         task.updated_at = now;
@@ -91,6 +96,11 @@ impl TaskStore {
     pub fn merge_metadata(&mut self, items: &[TaskMetadata]) {
         let now = unix_now();
         for item in items {
+            let activity_at = item.updated_at.unwrap_or(0);
+            let recently_active =
+                activity_at != 0 && now.saturating_sub(activity_at) <= METADATA_ACTIVE_GRACE_SECS;
+            let explicitly_active = matches!(item.status.as_str(), "active" | "running");
+            let should_show = explicitly_active || recently_active;
             if let Some(task) = self.tasks.get_mut(&item.id) {
                 if !item.title.trim().is_empty() {
                     task.title.clone_from(&item.title);
@@ -98,17 +108,37 @@ impl TaskStore {
                 if item.cwd.is_some() {
                     task.cwd.clone_from(&item.cwd);
                 }
-            } else if item.status != "notLoaded" {
+                if task.metadata_only {
+                    if should_show {
+                        task.state = if item.status == "notLoaded" {
+                            TaskState::Thinking
+                        } else {
+                            state_from_app_server(&item.status)
+                        };
+                        task.attention = task.state == TaskState::Error;
+                        task.updated_at = activity_at.max(task.updated_at);
+                    } else if task.state != TaskState::Done {
+                        task.state = TaskState::Done;
+                        task.attention = false;
+                        task.updated_at = now;
+                    }
+                }
+            } else if should_show {
                 self.tasks.insert(
                     item.id.clone(),
                     TaskView {
                         id: item.id.clone(),
                         title: item.title.clone(),
                         cwd: item.cwd.clone(),
-                        state: state_from_app_server(&item.status),
+                        state: if item.status == "notLoaded" {
+                            TaskState::Thinking
+                        } else {
+                            state_from_app_server(&item.status)
+                        },
                         attention: false,
-                        updated_at: item.updated_at.unwrap_or(now),
-                        started_at: item.updated_at.unwrap_or(now),
+                        updated_at: activity_at.max(now.saturating_sub(METADATA_ACTIVE_GRACE_SECS)),
+                        started_at: activity_at.max(now.saturating_sub(METADATA_ACTIVE_GRACE_SECS)),
+                        metadata_only: true,
                     },
                 );
             }
@@ -207,5 +237,34 @@ mod tests {
         }));
         assert_eq!(store.snapshot()[0].state, TaskState::Waiting);
         assert!(store.snapshot()[0].attention);
+    }
+
+    #[test]
+    fn recent_app_server_activity_is_visible_without_hooks() {
+        let mut store = TaskStore::default();
+        store.merge_metadata(&[TaskMetadata {
+            id: "recent-task".into(),
+            title: "Recent Codex task".into(),
+            cwd: Some("/tmp/demo".into()),
+            status: "notLoaded".into(),
+            updated_at: Some(unix_now()),
+        }]);
+        let tasks = store.snapshot();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].state, TaskState::Thinking);
+        assert!(tasks[0].metadata_only);
+    }
+
+    #[test]
+    fn stale_unloaded_app_server_activity_stays_hidden() {
+        let mut store = TaskStore::default();
+        store.merge_metadata(&[TaskMetadata {
+            id: "stale-task".into(),
+            title: "Stale Codex task".into(),
+            cwd: None,
+            status: "notLoaded".into(),
+            updated_at: Some(unix_now().saturating_sub(METADATA_ACTIVE_GRACE_SECS + 1)),
+        }]);
+        assert!(store.snapshot().is_empty());
     }
 }
